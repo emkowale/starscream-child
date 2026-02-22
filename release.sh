@@ -274,8 +274,11 @@ ok "CHANGELOG updated"
 # ==== COMMIT / PUSH / TAG =====================================================
 if [[ "$GIT_OK" -eq 1 ]]; then
   step "Committing changes"
-  git add "$MAIN_PATH" "$CHANGELOG"
-  if [[ -f "release.sh" ]]; then git add "release.sh"; fi
+  # Ensure build output is never treated as source input for the release commit.
+  rm -rf artifacts package
+
+  # Always release exactly what exists in the local working tree.
+  git add -A
 
   if ! git diff --cached --quiet; then
     git commit -m "chore(release): v${NEXT}" >/dev/null 2>&1
@@ -341,23 +344,19 @@ fi
 ( cd "$PKG_ROOT" && zip -qr "../${ART_DIR}/${ZIP_NAME}" "${THEME_SLUG}" )
 ok "Built ${ART_DIR}/${ZIP_NAME}"
 
-# ==== GITHUB RELEASE (OPTIONAL) ===============================================
-if [[ "$GIT_OK" -eq 1 ]] && command -v gh >/dev/null 2>&1; then
-  step "Publishing GitHub release v${NEXT}"
-  if gh auth status >/dev/null 2>&1; then
-    if gh release view "v${NEXT}" >/dev/null 2>&1; then
-      warn "Release exists; updating asset"
-      gh release upload "v${NEXT}" "${ART_DIR}/${ZIP_NAME}" --clobber >/dev/null || warn "Could not upload asset"
-    else
-      gh release create "v${NEXT}" "${ART_DIR}/${ZIP_NAME}" -t "v${NEXT}" -n "Release ${NEXT}" >/dev/null || warn "Could not create release"
-    fi
-    ok "Release v${NEXT} published"
-  else
-    warn "gh is installed but not authenticated; skipping GitHub release"
-  fi
+# ==== GITHUB RELEASE ==========================================================
+[[ "$GIT_OK" -eq 1 ]] || die "git is required to publish a GitHub release"
+command -v gh >/dev/null 2>&1 || die "gh not found; install GitHub CLI to publish releases"
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run: gh auth login"
+
+step "Publishing GitHub release v${NEXT}"
+if gh release view "v${NEXT}" >/dev/null 2>&1; then
+  warn "Release exists; updating asset"
+  gh release upload "v${NEXT}" "${ART_DIR}/${ZIP_NAME}" --clobber >/dev/null || die "Could not upload release asset"
 else
-  warn "Skipping GitHub release (git/gh unavailable)"
+  gh release create "v${NEXT}" "${ART_DIR}/${ZIP_NAME}" -t "v${NEXT}" -n "Release ${NEXT}" >/dev/null || die "Could not create GitHub release"
 fi
+ok "Release v${NEXT} published"
 
 rm -rf "$PKG_ROOT"
 ok "All done: ${ART_DIR}/${ZIP_NAME}"
